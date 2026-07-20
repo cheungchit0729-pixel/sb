@@ -4,5 +4,9 @@ version = "0.1.0"
 edition = "2024"
 
 [dependencies]
-iced = "0.14.0"
-iced_aw = "0.14.1"
+eframe = "0.27.2"
+egui = "0.27.2"
+rfd = "0.14.1"
+csv = "1.4.0"
+serde = { version = "1.0.228", features = ["derive"] }
+chrono = { version = "0.4", features = ["serde"] }
