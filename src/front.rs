@@ -13,8 +13,8 @@ pub(crate) struct App {
     settings: bool,
     about: bool,
     storage: AppStorage,
-    editor: Option<PurchaseEntryEditor>,
-    editing_index: Option<usize>,
+    editor: PurchaseEntryEditor,
+    editing_index: usize,
     new_editor: PurchaseEntryEditor,
 }
 
@@ -32,6 +32,19 @@ pub struct PurchaseEntryEditor {
     pub category: String,
     pub notes: String,
 }
+
+impl PurchaseEntryEditor {
+    fn new() -> PurchaseEntryEditor {
+        Self {
+            date_text: String::new(),
+            amount_text: String::new(),
+            merchant: String::new(),
+            category: String::new(),
+            notes: String::new(),
+        }
+    }
+}
+
 impl PurchaseEntryEditor {
     pub fn apply_to(&self, e: &mut PurchaseEntry) {
         if let Ok(dt) = NaiveDateTime::parse_from_str(&self.date_text, "%Y-%m-%d %H:%M:%S") {
@@ -45,13 +58,14 @@ impl PurchaseEntryEditor {
         e.notes = self.notes.clone();
     }
 
-    fn from(e: &PurchaseEntry) -> Self {
+    fn from(e: Option<&PurchaseEntry>) -> Self {
+        let e2 = e.unwrap();
         Self {
-            date_text: e.date.format("%Y-%m-%d %H:%M:%S").to_string(),
-            amount_text: e.amount.to_string(),
-            merchant: e.merchant.clone(),
-            category: e.category.clone(),
-            notes: e.notes.clone(),
+            date_text: e2.date.format("%Y-%m-%d %H:%M:%S").to_string(),
+            amount_text: e2.amount.to_string(),
+            merchant: e2.merchant.clone(),
+            category: e2.category.clone(),
+            notes: e2.notes.clone(),
         }
     }
 }
@@ -74,13 +88,12 @@ impl eframe::App for App {
                     }
                     ui.separator();
                     if ui.button("Save...").clicked() {
-                        if let Some(path) = rfd::FileDialog::new().save_file() {
-                            self.picked_path = Some(path.display().to_string());
-                        }
+                        back::write_data(self.picked_path.clone(),self.storage.get_all()).expect("Can't write data properly")
                     }
                     if ui.button("Save as...").clicked() {
                         if let Some(path) = rfd::FileDialog::new().save_file() {
                             self.picked_path = Some(path.display().to_string());
+                            back::write_data(self.picked_path.clone(),self.storage.get_all()).expect("Can't write data properly")
                         }
                     }
                     // confirm on quit
@@ -112,20 +125,23 @@ impl eframe::App for App {
             egui::SidePanel::left("left_panel")
                 .resizable(true)
                 .default_width(150.0)
-                .width_range(80.0..=200.0)
+                .width_range(80.0..=250.0)
                 .show_inside(ui, |ui| {
                     ui.vertical_centered(|ui| {
-                        ui.heading("Side menu");
+                        ui.heading("Tabs");
                         ui.separator();
-                        if ui.button("Click me!").clicked() {
-                            // …
+                        if ui.button("Searching").clicked() {
+
                         }
                     });
                     egui::ScrollArea::vertical().show(ui, |_ui| {});
                 });
 
             egui::CentralPanel::default().show_inside(ui, |ui| {
-                ui.vertical_centered(|ui| {
+                egui::TopBottomPanel::top("main_data")
+                    .resizable(true)
+                    .height_range(50.0..=350.0)
+                    .show_inside(ui, |ui| {
                     if self.picked_path.is_none() {
                         ui.label("Load a file first!");
                         return;
@@ -143,25 +159,36 @@ impl eframe::App for App {
                         egui::ScrollArea::vertical().show(ui, |ui| {
                             for (i, e) in self.storage.get_all().iter().enumerate() {
                                 ui.horizontal(|ui| {
-                                    ui.label(e.date.to_string());
-                                    ui.label(format!("{:.3}", e.amount));
-                                    ui.label(&e.merchant);
-                                    ui.label(&e.category);
-                                    ui.label(&e.notes);
+                                    if (i == self.editing_index) {
 
-                                    if (i == self.editing_index.expect("no editing index")) {
-
+                                        ui.add_sized([160.0,20.0],
+                                                     egui::TextEdit::singleline(&mut self.editor.date_text).hint_text("Date"));
+                                        ui.add_sized([80.0,20.0],
+                                                     egui::TextEdit::singleline(&mut self.editor.amount_text).hint_text("Amount"));
+                                        ui.add_sized([80.0,20.0],
+                                                     egui::TextEdit::singleline(&mut self.editor.merchant).hint_text("Merchant"));
+                                        ui.add_sized([80.0,20.0],
+                                                     egui::TextEdit::singleline(&mut self.editor.category).hint_text("Category"));
+                                        ui.add_sized([80.0,20.0],
+                                                     egui::TextEdit::singleline(&mut self.editor.notes).hint_text("Notes"));
                                         if ui.button("Save").clicked() {
                                             clicked_save = true;
                                         }
-                                    }
 
-                                    if ui.button("EDIT").clicked() {
-                                        clicked_edit = Some(i);
-                                    }
+                                        if ui.button("DELETE").clicked() {
+                                            to_delete.push(i);
+                                        }
 
-                                    if ui.button("DELETE").clicked() {
-                                        to_delete.push(i);
+                                    } else {
+                                        ui.label(e.date.to_string());
+                                        ui.label(format!("{:.3}", e.amount));
+                                        ui.label(&e.merchant);
+                                        ui.label(&e.category);
+                                        ui.label(&e.notes);
+
+                                        if ui.button("EDIT").clicked() {
+                                            clicked_edit = Some(i);
+                                        }
                                     }
                                 });
                                 ui.separator();
@@ -172,18 +199,19 @@ impl eframe::App for App {
                         if let Some(i) = clicked_edit {
                             println!("{:?} {:?}","editing",i); // working here
                             let entry_ref = self.storage.get(Option::from(i));
-                            self.editing_index = Some(i);
-                            self.editor = Some(PurchaseEntryEditor::from(entry_ref.expect("Missing entry reference")));
+                            self.editing_index = i;
+                            self.editor = PurchaseEntryEditor::from(self.storage.get(clicked_edit))
                         }
 
                         // SAVE
                         if clicked_save {
-                            if let (Some(i), Some(editor)) = (self.editing_index, self.editor.as_ref()) {
+                            if let i = self.editing_index {
                                 if let Some(entry_mut) = self.storage.get_mut(Option::from(i)) {
-                                    editor.apply_to(entry_mut);
+                                    self.editor.apply_to(entry_mut);
                                 }
                             }
                             clicked_save = false;
+                            self.editing_index = usize::MAX;
                         }
 
                         // DELETE
@@ -196,7 +224,7 @@ impl eframe::App for App {
 
 
                     ui.horizontal(|ui| {
-                        ui.add_sized([80.0,20.0],
+                        ui.add_sized([160.0,20.0],
                                      egui::TextEdit::singleline(&mut self.new_editor.date_text).hint_text("Date"));
                         ui.add_sized([80.0,20.0],
                                      egui::TextEdit::singleline(&mut self.new_editor.amount_text).hint_text("Amount"));
@@ -222,13 +250,7 @@ impl eframe::App for App {
                         self.storage.add(entry);
 
                         // clear editor for next add
-                        self.new_editor = PurchaseEntryEditor {
-                            date_text: String::new(),
-                            amount_text: String::new(),
-                            merchant: String::new(),
-                            category: String::new(),
-                            notes: String::new(),
-                        };
+                        self.new_editor = PurchaseEntryEditor::new()
                     }
 
                 });

@@ -2,7 +2,7 @@ use chrono::NaiveDateTime;
 use serde::{Deserialize, Deserializer};
 use crate::{back, front};
 
-#[derive(Debug, serde::Deserialize, Clone)]
+#[derive(Debug, serde::Deserialize, Clone, serde::Serialize)]
 pub struct PurchaseEntry {
     #[serde(deserialize_with = "parse_naive_datetime")]
     pub(crate) date: NaiveDateTime,
@@ -100,4 +100,19 @@ pub fn parse_data(path: Option<String>) -> Vec<PurchaseEntry> {
         entries.push(record);
     }
     entries
+}
+
+pub fn write_data(path: Option<String>, entries: &[PurchaseEntry]) -> Result<(), Box<dyn std::error::Error>> {
+    let path = path.expect("missing path");
+    let mut wtr = csv::WriterBuilder::new()
+    .has_headers(true)
+    .from_path(path)
+    .expect("cannot open csv");
+
+    for entry in entries {
+        wtr.serialize(entry)?;
+    }
+
+    wtr.flush()?;
+    Ok(())
 }
