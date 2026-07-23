@@ -1,18 +1,18 @@
 date,amount,merchant,category,notes
-2042-10-08 19:33:59,1,test,Transportation,note here
-2011-9-1 0:23:12,1000000000000000,test2,Utilities,note here2
-2000-1-1 1:11:11,0,filler,Utilities,filler
-2000-1-1 1:11:11,0,filler,Utilities,filler
-2000-1-1 1:11:11,0,filler,Utilities,filler
-2000-1-1 1:11:11,0,filler,Utilities,filler
-2000-1-1 1:11:11,0,filler,Utilities,filler
-2000-1-1 1:11:11,0,filler,Utilities,filler
-2000-1-1 1:11:11,0,filler,Utilities,filler
-2000-1-1 1:11:11,0,filler,Utilities,filler
-2000-1-1 1:11:11,0,filler,Utilities,filler
-2000-1-1 1:11:11,0,filler,Utilities,filler
-2000-1-1 1:11:11,0,filler,Utilities,filler
-2000-1-1 1:11:11,0,filler,Utilities,filler
-2000-1-1 1:11:11,0,filler,Utilities,filler
-2000-1-1 1:11:11,0,filler,Utilities,filler
-2000-1-1 1:11:11,0,filler,Utilities,filler
+2042-10-08T19:33:59,1.0,test,transport,note here
+2011-09-01T00:23:12,1000000000000000.0,test2,utilities,note here2
+2000-01-01T01:11:11,0.0,filler,utilities,filler
+2000-01-01T01:11:11,0.0,filler,utilities,filler
+2000-01-01T01:11:11,0.0,filler,utilities,filler
+2000-01-01T01:11:11,0.0,filler,utilities,filler
+2000-01-01T01:11:11,0.0,filler,utilities,filler
+2000-01-01T01:11:11,0.0,filler,utilities,filler
+2000-01-01T01:11:11,0.0,filler,utilities,filler
+2000-01-01T01:11:11,0.0,filler,utilities,filler
+2000-01-01T01:11:11,0.0,filler,utilities,filler
+2000-01-01T01:11:11,0.0,filler,utilities,filler
+2000-01-01T01:11:11,0.0,filler,utilities,filler
+2000-01-01T01:11:11,0.0,filler,utilities,filler
+2000-01-01T01:11:11,0.0,filler,utilities,filler
+2000-01-01T01:11:11,0.0,filler,utilities,filler
+2000-01-01T01:11:11,0.0,filler,utilities,filler

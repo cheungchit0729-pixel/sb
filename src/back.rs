@@ -1,13 +1,14 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Deserializer};
+use crate::front::SpendingCategory;
 
-#[derive(Debug, serde::Deserialize, Clone, serde::Serialize)]
+#[derive(Default, Debug, serde::Deserialize, Clone, serde::Serialize)]
 pub struct PurchaseEntry {
     #[serde(deserialize_with = "parse_naive_datetime")]
     pub(crate) date: NaiveDateTime,
     pub(crate) amount: f64,
     pub(crate) merchant: String,
-    pub(crate) category: String,
+    pub(crate) category: SpendingCategory,
     pub(crate) notes: String,
 }
 
@@ -53,6 +54,9 @@ impl AppStorage {
         }
     }
 
+    pub fn purge(&mut self) {
+        self.loaded_data.clear();
+    }
 
     pub fn get_all(&self) -> &[PurchaseEntry] {
         &self.loaded_data
@@ -67,8 +71,8 @@ where
     let s = s.trim();
 
     let (date_part, time_part) = s
-        .split_once(' ')
-        .ok_or_else(|| serde::de::Error::custom("expected 'YYYY-M-D H:M:S'"))?;
+        .split_once('T')
+        .ok_or_else(|| serde::de::Error::custom("expected 'YYYY-MM-DDTHH:MM:SS'"))?;
 
     let mut d = date_part.split('-');
     let y: i32 = d.next().ok_or_else(|| serde::de::Error::custom("missing year"))?.parse().map_err(serde::de::Error::custom)?;
@@ -83,6 +87,10 @@ where
     let normalized = format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", y, m, day, hh, mm, ss);
     NaiveDateTime::parse_from_str(&normalized, "%Y-%m-%d %H:%M:%S")
         .map_err(|e| serde::de::Error::custom(format!("bad datetime: {e}")))
+}
+
+pub fn new_data() -> Vec<PurchaseEntry> {
+    vec![PurchaseEntry::default()]
 }
 
 pub fn parse_data(path: Option<String>) -> Vec<PurchaseEntry> {

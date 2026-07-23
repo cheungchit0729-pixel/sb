@@ -1,7 +1,63 @@
+use std::cmp::PartialEq;
 use chrono::NaiveDateTime;
 use eframe::egui;
 use crate::back;
 use crate::back::{AppStorage, PurchaseEntry};
+
+#[derive(Default, Eq, PartialEq)]
+pub enum Tabs {
+    #[default]
+    Main,
+    Data,
+    Sorting,
+    Searching,
+    Settings,
+    About,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum SpendingCategory {
+    Groceries,
+    Rent,
+    Utilities,
+    Dining,
+    Transport,
+    Entertainment,
+    Health,
+    Education,
+    Shopping,
+    #[default]
+    Other,
+}
+impl SpendingCategory {
+    pub const ALL: [SpendingCategory; 10 + 0] = [
+        SpendingCategory::Groceries,
+        SpendingCategory::Rent,
+        SpendingCategory::Utilities,
+        SpendingCategory::Dining,
+        SpendingCategory::Transport,
+        SpendingCategory::Entertainment,
+        SpendingCategory::Health,
+        SpendingCategory::Education,
+        SpendingCategory::Shopping,
+        SpendingCategory::Other,
+    ];
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Groceries => "Groceries",
+            Self::Rent => "Rent",
+            Self::Utilities => "Utilities",
+            Self::Dining => "Dining",
+            Self::Transport => "Transport",
+            Self::Entertainment => "Entertainment",
+            Self::Health => "Health",
+            Self::Education => "Education",
+            Self::Shopping => "Shopping",
+            Self::Other => "Other",
+        }
+    }
+}
 
 #[derive(Default)]
 pub(crate) struct App {
@@ -9,12 +65,11 @@ pub(crate) struct App {
     picked_path: Option<String>,
     show_confirmation_dialog: bool,
     allowed_to_close: bool,
+    current_tab: Tabs,
 
-    settings: bool,
-    about: bool,
     storage: AppStorage,
     editor: PurchaseEntryEditor,
-    editing_index: usize,
+    editing_index: Option<usize>,
     new_editor: PurchaseEntryEditor,
 }
 
@@ -29,7 +84,7 @@ pub struct PurchaseEntryEditor {
     pub date_text: String,
     pub amount_text: String,
     pub merchant: String,
-    pub category: String,
+    pub category: SpendingCategory,
     pub notes: String,
 }
 
@@ -39,7 +94,7 @@ impl PurchaseEntryEditor {
             date_text: String::new(),
             amount_text: String::new(),
             merchant: String::new(),
-            category: String::new(),
+            category: SpendingCategory::Other,
             notes: String::new(),
         }
     }
@@ -69,7 +124,6 @@ impl PurchaseEntryEditor {
         }
     }
 }
-
 impl eframe::App for App {
     fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
         // fixed pixel
@@ -79,7 +133,13 @@ impl eframe::App for App {
             egui::menu::bar(ui, |ui| {
                 // first menu
                 ui.menu_button("File", |ui| {
+                    if ui.button("New").clicked() {
+                        self.storage.purge();
+                        self.storage.add_many(back::new_data());
+                    }
+                    ui.separator();
                     if ui.button("Open new...").clicked() {
+                        self.storage.purge();
                         if let Some(path) = rfd::FileDialog::new().pick_file() {
                             self.picked_path = Some(path.display().to_string());
                             if self.picked_path == None { return; }
@@ -108,7 +168,7 @@ impl eframe::App for App {
                         unimplemented!()
                     }
                     if ui.button("Settings").clicked() {
-                        self.settings = true;
+                        self.current_tab = Tabs::Settings;
                     }
                 });
                 // Help
@@ -130,131 +190,160 @@ impl eframe::App for App {
                     ui.vertical_centered(|ui| {
                         ui.heading("Tabs");
                         ui.separator();
-                        if ui.button("Searching").clicked() {
 
+                        if ui.button("Overview").clicked() {
+                            self.current_tab = Tabs::Main;
+                        }
+
+                        if ui.button("Purchases").clicked() {
+                            self.current_tab = Tabs::Data;
+                        }
+
+                        if ui.button("Searching").clicked() {
+                            self.current_tab = Tabs::Searching;
+                        }
+
+                        if ui.button("Sorting").clicked() {
+                            self.current_tab = Tabs::Sorting;
                         }
                     });
                     egui::ScrollArea::vertical().show(ui, |_ui| {});
                 });
 
-            egui::CentralPanel::default().show_inside(ui, |ui| {
-                egui::TopBottomPanel::top("main_data")
-                    .resizable(true)
-                    .height_range(50.0..=350.0)
-                    .show_inside(ui, |ui| {
-                    if self.picked_path.is_none() {
-                        ui.label("Load a file first!");
-                        return;
-                    }
-                    if self.storage.get_all().len() == 0 {
-                        ui.label("Nothing to see here!");
-                        return;
-                    }
+            /*(if self.current_tab == Tabs::Main {
+                egui::CentralPanel::default().show(ctx, |ui| {
+                    ui.label("eSpen Personal eXpense tracker");
+                })
+            }*/
 
-                    egui::ScrollArea::vertical().show(ui, |ui| {
-                        let mut to_delete: Vec<usize> = Vec::new();
-                        let mut clicked_edit: Option<usize> = None;
-                        let mut clicked_save: bool = false; // or just bool, depending on your UI
+           if self.current_tab == Tabs::Data {
+               egui::CentralPanel::default().show_inside(ui, |ui| {
+                   egui::TopBottomPanel::top("main_data")
+                       .resizable(true)
+                       .default_height(350.0)
+                       .height_range(50.0..=350.0)
+                       .show_inside(ui, |ui| {
+                           if self.picked_path.is_none() {
+                               ui.add_sized([350.0, 350.0], egui::Label::new("Load a file first!"));
+                               return;
+                           }
+                           if self.storage.get_all().len() == 0 {
+                               ui.label("Nothing to see here!");
+                               return;
+                           }
 
-                        egui::ScrollArea::vertical().show(ui, |ui| {
-                            for (i, e) in self.storage.get_all().iter().enumerate() {
-                                ui.horizontal(|ui| {
-                                    if (i == self.editing_index) {
+                           egui::ScrollArea::vertical().show(
+                               ui,
+                               |ui| {
+                                   let mut to_delete: Vec<usize> = Vec::new();
+                                   let mut clicked_save: bool = false;
 
-                                        ui.add_sized([160.0,20.0],
-                                                     egui::TextEdit::singleline(&mut self.editor.date_text).hint_text("Date"));
-                                        ui.add_sized([80.0,20.0],
-                                                     egui::TextEdit::singleline(&mut self.editor.amount_text).hint_text("Amount"));
-                                        ui.add_sized([80.0,20.0],
-                                                     egui::TextEdit::singleline(&mut self.editor.merchant).hint_text("Merchant"));
-                                        ui.add_sized([80.0,20.0],
-                                                     egui::TextEdit::singleline(&mut self.editor.category).hint_text("Category"));
-                                        ui.add_sized([80.0,20.0],
-                                                     egui::TextEdit::singleline(&mut self.editor.notes).hint_text("Notes"));
-                                        if ui.button("Save").clicked() {
-                                            clicked_save = true;
-                                        }
+                                   egui::ScrollArea::vertical().show(ui, |ui| {
+                                       for (i, e) in self.storage.get_all().iter().enumerate() {
+                                           ui.horizontal(|ui| {
+                                               if self.editing_index == Some(i) {
+                                                   ui.add_sized([160.0, 20.0], egui::TextEdit::singleline(&mut self.editor.date_text).hint_text("Date"));
+                                                   ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.editor.amount_text).hint_text("Amount"));
+                                                   ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.editor.merchant).hint_text("Merchant"));
+                                                   egui::ComboBox::from_label("Category").width(80.0)
+                                                       .selected_text(self.editor.category.as_str())
+                                                       .show_ui(ui, |ui| {
+                                                           for c in SpendingCategory::ALL.iter().copied() {
+                                                               ui.selectable_value(&mut self.editor.category, c, c.as_str());
+                                                           }
+                                                       });
+                                                   ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.editor.notes).hint_text("Notes"));
 
-                                        if ui.button("DELETE").clicked() {
-                                            to_delete.push(i);
-                                        }
+                                                   if ui.button("Save").clicked() {
+                                                       clicked_save = true;
+                                                   }
 
-                                    } else {
-                                        ui.label(e.date.to_string());
-                                        ui.label(format!("{:.3}", e.amount));
-                                        ui.label(&e.merchant);
-                                        ui.label(&e.category);
-                                        ui.label(&e.notes);
+                                                   if ui.button("Delete").clicked() {
+                                                       to_delete.push(i);
+                                                   }
+                                               } else {
+                                                   let text = format!(
+                                                       "{}  {:.3}  {}  {}  {}",
+                                                       e.date, e.amount, e.merchant, e.category.as_str(), e.notes
+                                                   );
 
-                                        if ui.button("EDIT").clicked() {
-                                            clicked_edit = Some(i);
-                                        }
-                                    }
-                                });
-                                ui.separator();
-                            }
-                        });
+                                                   if ui.add(
+                                                       egui::Label::new(text).sense(egui::Sense::click()))
+                                                       .clicked() {
+                                                       self.editing_index = Some(i);
+                                                       self.editor = PurchaseEntryEditor::from(self.storage.get(Some(i)));
+                                                   }
+                                               }
+                                           });
+                                           ui.separator();
+                                       }
+                                   });
 
-                        // EDIT
-                        if let Some(i) = clicked_edit {
-                            println!("{:?} {:?}","editing",i); // working here
-                            let entry_ref = self.storage.get(Option::from(i));
-                            self.editing_index = i;
-                            self.editor = PurchaseEntryEditor::from(self.storage.get(clicked_edit))
-                        }
+                                   // SAVE
+                                   if clicked_save {
+                                       if let Some(i) = self.editing_index {
+                                           if let Some(entry_mut) = self.storage.get_mut(Some(i)) {
+                                               self.editor.apply_to(entry_mut);
+                                           }
+                                       }
+                                       self.editing_index = None;
+                                   }
 
-                        // SAVE
-                        if clicked_save {
-                            if let i = self.editing_index {
-                                if let Some(entry_mut) = self.storage.get_mut(Option::from(i)) {
-                                    self.editor.apply_to(entry_mut);
-                                }
-                            }
-                            clicked_save = false;
-                            self.editing_index = usize::MAX;
-                        }
+                                   // DELETE
+                                   to_delete.sort_unstable();
+                                   to_delete.dedup();
+                                   for i in to_delete.into_iter().rev() {
+                                       self.storage.remove(i);
+                                   }
+                               }
+                           );
+                       });
 
-                        // DELETE
-                        to_delete.sort_unstable();
-                        to_delete.dedup();
-                        for i in to_delete.into_iter().rev() {
-                            self.storage.remove(i);
-                        }
-                    });
+                   egui::TopBottomPanel::bottom("new_editor")
+                       .resizable(true)
+                       .default_height(350.0)
+                       .height_range(50.0..=350.0)
+                       .show(ctx, |ui| {
+
+                           ui.horizontal(|ui| {
+                               ui.add_sized([160.0, 20.0],
+                                            egui::TextEdit::singleline(&mut self.new_editor.date_text).hint_text("Date"));
+                               ui.add_sized([80.0, 20.0],
+                                            egui::TextEdit::singleline(&mut self.new_editor.amount_text).hint_text("Amount"));
+                               ui.add_sized([80.0, 20.0],
+                                            egui::TextEdit::singleline(&mut self.new_editor.merchant).hint_text("Merchant"));
+                               egui::ComboBox::from_label("Category").width(80.0)
+                                   .selected_text(self.editor.category.as_str())
+                                   .show_ui(ui, |ui| {
+                                       for c in SpendingCategory::ALL.iter().copied() {
+                                           ui.selectable_value(&mut self.new_editor.category, c, c.as_str());
+                                       }
+                                   });
+                               ui.add_sized([80.0, 20.0],
+                                            egui::TextEdit::singleline(&mut self.new_editor.notes).hint_text("Notes"));
+
+                               if ui.button("ADD").clicked() {
+                                   // create a new entry from the editor and push it
+                                   let mut entry = PurchaseEntry {
+                                       date: NaiveDateTime::default(),
+                                       amount: 0.0,
+                                       merchant: String::new(),
+                                       category: SpendingCategory::Other,
+                                       notes: String::new(),
+                                   };
+
+                                   self.new_editor.apply_to(&mut entry);
+                                   self.storage.add(entry);
+
+                                   // clear editor for next add
+                                   self.new_editor = PurchaseEntryEditor::new()
+                               }
+                           })
+                       });
 
 
-                    ui.horizontal(|ui| {
-                        ui.add_sized([160.0,20.0],
-                                     egui::TextEdit::singleline(&mut self.new_editor.date_text).hint_text("Date"));
-                        ui.add_sized([80.0,20.0],
-                                     egui::TextEdit::singleline(&mut self.new_editor.amount_text).hint_text("Amount"));
-                        ui.add_sized([80.0,20.0],
-                                     egui::TextEdit::singleline(&mut self.new_editor.merchant).hint_text("Merchant"));
-                        ui.add_sized([80.0,20.0],
-                                     egui::TextEdit::singleline(&mut self.new_editor.category).hint_text("Category"));
-                        ui.add_sized([80.0,20.0],
-                                     egui::TextEdit::singleline(&mut self.new_editor.notes).hint_text("Notes"));
-                    });
-
-                    if ui.button("ADD").clicked() {
-                        // create a new entry from the editor and push it
-                        let mut entry = PurchaseEntry {
-                            date: NaiveDateTime::default(),
-                            amount: 0.0,
-                            merchant: String::new(),
-                            category: String::new(),
-                            notes: String::new(),
-                        };
-
-                        self.new_editor.apply_to(&mut entry);
-                        self.storage.add(entry);
-
-                        // clear editor for next add
-                        self.new_editor = PurchaseEntryEditor::new()
-                    }
-
-                });
-            });
+               });
+           }
         });
 
         if ctx.input(|i| i.viewport().close_requested()) {
@@ -265,7 +354,7 @@ impl eframe::App for App {
                 self.show_confirmation_dialog = true;
             }
         }
-        if self.about {
+        if self.current_tab == Tabs::About {
             egui::Window::new("About")
                 .resizable(false)
                 .collapsible(false)
@@ -273,7 +362,8 @@ impl eframe::App for App {
                     ui.label("about");
                 });
         }
-        if self.settings {
+
+        if self.current_tab == Tabs::Settings {
             egui::Window::new("Setting")
                 .resizable(false)
                 .show(ctx, |ui| {
