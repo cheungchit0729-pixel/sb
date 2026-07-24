@@ -1,8 +1,12 @@
-use std::cmp::PartialEq;
+use crate::back::{AppStorage, PurchaseEntry, new_data, parse_data, write_data};
 use chrono::NaiveDateTime;
 use eframe::egui;
-use crate::back;
-use crate::back::{AppStorage, PurchaseEntry};
+use elegance::{Accent, Button, Card, Checkbox, TextInput, Theme};
+use std::cmp::PartialEq;
+use std::vec::Vec;
+use egui::InnerResponse;
+use uuid::Uuid;
+
 
 #[derive(Default, Eq, PartialEq)]
 pub enum Tabs {
@@ -13,6 +17,13 @@ pub enum Tabs {
     Searching,
     Settings,
     About,
+}
+#[derive(Default, Eq, PartialEq)]
+pub enum RowAction {
+    Save,
+    Delete,
+    #[default]
+    None,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
@@ -69,16 +80,9 @@ pub(crate) struct App {
 
     storage: AppStorage,
     editor: PurchaseEntryEditor,
-    editing_index: Option<usize>,
+    edit_id: Option<Uuid>,
     new_editor: PurchaseEntryEditor,
 }
-
-impl App {
-    pub(crate) fn name() -> &'static str {
-        "app"
-    }
-}
-
 #[derive(Default)]
 pub struct PurchaseEntryEditor {
     pub date_text: String,
@@ -87,7 +91,6 @@ pub struct PurchaseEntryEditor {
     pub category: SpendingCategory,
     pub notes: String,
 }
-
 impl PurchaseEntryEditor {
     fn new() -> PurchaseEntryEditor {
         Self {
@@ -98,9 +101,6 @@ impl PurchaseEntryEditor {
             notes: String::new(),
         }
     }
-}
-
-impl PurchaseEntryEditor {
     pub fn apply_to(&self, e: &mut PurchaseEntry) {
         if let Ok(dt) = NaiveDateTime::parse_from_str(&self.date_text, "%Y-%m-%d %H:%M:%S") {
             e.date = dt;
@@ -113,288 +113,435 @@ impl PurchaseEntryEditor {
         e.notes = self.notes.clone();
     }
 
-    fn from(e: Option<&PurchaseEntry>) -> Self {
-        let e2 = e.unwrap();
+    fn from(e: &PurchaseEntry) -> Self {
         Self {
-            date_text: e2.date.format("%Y-%m-%d %H:%M:%S").to_string(),
-            amount_text: e2.amount.to_string(),
-            merchant: e2.merchant.clone(),
-            category: e2.category.clone(),
-            notes: e2.notes.clone(),
+            date_text: e.date.format("%Y-%m-%d %H:%M:%S").to_string(),
+            amount_text: e.amount.to_string(),
+            merchant: e.merchant.clone(),
+            category: e.category.clone(),
+            notes: e.notes.clone(),
         }
     }
 }
 impl eframe::App for App {
-    fn update(&mut self, ctx: &egui::Context, _frame: &mut eframe::Frame) {
-        // fixed pixel
-        // ctx.set_pixels_per_point(1.25);
-        egui::TopBottomPanel::top("top_panel").show(ctx, |ui| {
-            // menu bar
-            egui::menu::bar(ui, |ui| {
-                // first menu
-                ui.menu_button("File", |ui| {
-                    if ui.button("New").clicked() {
-                        self.storage.purge();
-                        self.storage.add_many(back::new_data());
-                    }
-                    ui.separator();
-                    if ui.button("Open new...").clicked() {
-                        self.storage.purge();
-                        if let Some(path) = rfd::FileDialog::new().pick_file() {
-                            self.picked_path = Some(path.display().to_string());
-                            if self.picked_path == None { return; }
-                            self.storage.add_many(back::parse_data(self.picked_path.clone()))
-                        }
-                    }
-                    ui.separator();
-                    if ui.button("Save...").clicked() {
-                        back::write_data(self.picked_path.clone(),self.storage.get_all()).expect("Can't write data properly")
-                    }
-                    if ui.button("Save as...").clicked() {
-                        if let Some(path) = rfd::FileDialog::new().save_file() {
-                            self.picked_path = Some(path.display().to_string());
-                            back::write_data(self.picked_path.clone(),self.storage.get_all()).expect("Can't write data properly")
-                        }
-                    }
-                    // confirm on quit
-                    ui.separator();
-                    if ui.button("Quit").clicked() {
-                        std::process::exit(0);
-                    }
+    fn ui(&mut self, ui: &mut egui::Ui, _: &mut eframe::Frame) {
+        Theme::paper().install(ui.ctx()); // apply theme
+
+        egui::Panel::top("tmenu").show(ui, |ui| {
+            self.top_menu(ui);
+        });
+
+        egui::CentralPanel::default().show(ui, |ui| {
+            ui.horizontal(|ui| {
+                let left_width = ui.available_width() * 0.15;
+
+                ui.allocate_ui(egui::Vec2::new(left_width, ui.available_height()), |ui| {
+                    self.side_panel(ui);
                 });
-                // Tools
-                ui.menu_button("Tools", |ui| {
-                    if ui.button("Preferences").clicked() {
-                        unimplemented!()
+
+                ui.vertical(|ui| {
+                    self.current_tab(ui);
                     }
-                    if ui.button("Settings").clicked() {
-                        self.current_tab = Tabs::Settings;
-                    }
-                });
-                // Help
-                ui.menu_button("Help", |ui| {
-                    ui.separator();
-                    if ui.button("About this program").clicked() {
-                        //functionality
-                    }
-                })
+                )
             });
         });
-        // CentralPanel == Container
-        egui::CentralPanel::default().show(ctx, |ui| {
-            egui::SidePanel::left("left_panel")
-                .resizable(true)
-                .default_width(150.0)
-                .width_range(80.0..=250.0)
-                .show_inside(ui, |ui| {
-                    ui.vertical_centered(|ui| {
-                        ui.heading("Tabs");
-                        ui.separator();
-
-                        if ui.button("Overview").clicked() {
-                            self.current_tab = Tabs::Main;
-                        }
-
-                        if ui.button("Purchases").clicked() {
-                            self.current_tab = Tabs::Data;
-                        }
-
-                        if ui.button("Searching").clicked() {
-                            self.current_tab = Tabs::Searching;
-                        }
-
-                        if ui.button("Sorting").clicked() {
-                            self.current_tab = Tabs::Sorting;
-                        }
-                    });
-                    egui::ScrollArea::vertical().show(ui, |_ui| {});
-                });
-
-            /*(if self.current_tab == Tabs::Main {
-                egui::CentralPanel::default().show(ctx, |ui| {
-                    ui.label("eSpen Personal eXpense tracker");
-                })
-            }*/
-
-           if self.current_tab == Tabs::Data {
-               egui::CentralPanel::default().show_inside(ui, |ui| {
-                   egui::TopBottomPanel::top("main_data")
-                       .resizable(true)
-                       .default_height(350.0)
-                       .height_range(50.0..=350.0)
-                       .show_inside(ui, |ui| {
-                           if self.picked_path.is_none() {
-                               ui.add_sized([350.0, 350.0], egui::Label::new("Load a file first!"));
-                               return;
-                           }
-                           if self.storage.get_all().len() == 0 {
-                               ui.label("Nothing to see here!");
-                               return;
-                           }
-
-                           egui::ScrollArea::vertical().show(
-                               ui,
-                               |ui| {
-                                   let mut to_delete: Vec<usize> = Vec::new();
-                                   let mut clicked_save: bool = false;
-
-                                   egui::ScrollArea::vertical().show(ui, |ui| {
-                                       for (i, e) in self.storage.get_all().iter().enumerate() {
-                                           ui.horizontal(|ui| {
-                                               if self.editing_index == Some(i) {
-                                                   ui.add_sized([160.0, 20.0], egui::TextEdit::singleline(&mut self.editor.date_text).hint_text("Date"));
-                                                   ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.editor.amount_text).hint_text("Amount"));
-                                                   ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.editor.merchant).hint_text("Merchant"));
-                                                   egui::ComboBox::from_label("Category").width(80.0)
-                                                       .selected_text(self.editor.category.as_str())
-                                                       .show_ui(ui, |ui| {
-                                                           for c in SpendingCategory::ALL.iter().copied() {
-                                                               ui.selectable_value(&mut self.editor.category, c, c.as_str());
-                                                           }
-                                                       });
-                                                   ui.add_sized([80.0, 20.0], egui::TextEdit::singleline(&mut self.editor.notes).hint_text("Notes"));
-
-                                                   if ui.button("Save").clicked() {
-                                                       clicked_save = true;
-                                                   }
-
-                                                   if ui.button("Delete").clicked() {
-                                                       to_delete.push(i);
-                                                   }
-                                               } else {
-                                                   let text = format!(
-                                                       "{}  {:.3}  {}  {}  {}",
-                                                       e.date, e.amount, e.merchant, e.category.as_str(), e.notes
-                                                   );
-
-                                                   if ui.add(
-                                                       egui::Label::new(text).sense(egui::Sense::click()))
-                                                       .clicked() {
-                                                       self.editing_index = Some(i);
-                                                       self.editor = PurchaseEntryEditor::from(self.storage.get(Some(i)));
-                                                   }
-                                               }
-                                           });
-                                           ui.separator();
-                                       }
-                                   });
-
-                                   // SAVE
-                                   if clicked_save {
-                                       if let Some(i) = self.editing_index {
-                                           if let Some(entry_mut) = self.storage.get_mut(Some(i)) {
-                                               self.editor.apply_to(entry_mut);
-                                           }
-                                       }
-                                       self.editing_index = None;
-                                   }
-
-                                   // DELETE
-                                   to_delete.sort_unstable();
-                                   to_delete.dedup();
-                                   for i in to_delete.into_iter().rev() {
-                                       self.storage.remove(i);
-                                   }
-                               }
-                           );
-                       });
-
-                   egui::TopBottomPanel::bottom("new_editor")
-                       .resizable(true)
-                       .default_height(350.0)
-                       .height_range(50.0..=350.0)
-                       .show(ctx, |ui| {
-
-                           ui.horizontal(|ui| {
-                               ui.add_sized([160.0, 20.0],
-                                            egui::TextEdit::singleline(&mut self.new_editor.date_text).hint_text("Date"));
-                               ui.add_sized([80.0, 20.0],
-                                            egui::TextEdit::singleline(&mut self.new_editor.amount_text).hint_text("Amount"));
-                               ui.add_sized([80.0, 20.0],
-                                            egui::TextEdit::singleline(&mut self.new_editor.merchant).hint_text("Merchant"));
-                               egui::ComboBox::from_label("Category").width(80.0)
-                                   .selected_text(self.editor.category.as_str())
-                                   .show_ui(ui, |ui| {
-                                       for c in SpendingCategory::ALL.iter().copied() {
-                                           ui.selectable_value(&mut self.new_editor.category, c, c.as_str());
-                                       }
-                                   });
-                               ui.add_sized([80.0, 20.0],
-                                            egui::TextEdit::singleline(&mut self.new_editor.notes).hint_text("Notes"));
-
-                               if ui.button("ADD").clicked() {
-                                   // create a new entry from the editor and push it
-                                   let mut entry = PurchaseEntry {
-                                       date: NaiveDateTime::default(),
-                                       amount: 0.0,
-                                       merchant: String::new(),
-                                       category: SpendingCategory::Other,
-                                       notes: String::new(),
-                                   };
-
-                                   self.new_editor.apply_to(&mut entry);
-                                   self.storage.add(entry);
-
-                                   // clear editor for next add
-                                   self.new_editor = PurchaseEntryEditor::new()
-                               }
-                           })
-                       });
 
 
-               });
-           }
+        if ui.input(|i| i.viewport().close_requested()) {
+            self.handle_close_request(ui);
+        }
+
+        // Quit confirmation dialog
+        if self.show_confirmation_dialog {
+            self.confirm_quit_dialog(ui);
+        }
+    }
+}
+
+impl App {
+    pub(crate) fn name() -> &'static str {
+        "app"
+    }
+    fn top_menu(&mut self, ui: &mut egui::Ui) {
+        ui.horizontal(|ui| {
+            ui.menu_button("File", |ui| {
+                self.file_menu(ui);
+            });
+            ui.menu_button("Tools", |ui| {
+                self.tools_menu(ui);
+            });
         });
+    }
 
-        if ctx.input(|i| i.viewport().close_requested()) {
-            if self.allowed_to_close {
-                // do nothing - we will close
-            } else {
-                ctx.send_viewport_cmd(egui::ViewportCommand::CancelClose);
-                self.show_confirmation_dialog = true;
+    fn file_menu(&mut self, ui: &mut egui::Ui) {
+        if ui.button("New").clicked() {
+            self.picked_path = None;
+            self.storage.purge();
+            self.storage.add(new_data());
+            println!("made new thing")
+        }
+
+        ui.separator();
+
+        if ui.button("Open new...").clicked() {
+            self.open_file_dialog();
+        }
+
+        ui.separator();
+
+        if ui.button("Save").clicked() {
+            let _ = write_data(self.picked_path.clone(), self.storage.get_all());
+        }
+
+        if ui.button("Save as...").clicked() {
+            if let Some(path) = rfd::FileDialog::new().save_file() {
+                self.picked_path = Some(path.display().to_string());
+                let _ = write_data(self.picked_path.clone(), self.storage.get_all());
             }
         }
-        if self.current_tab == Tabs::About {
-            egui::Window::new("About")
-                .resizable(false)
-                .collapsible(false)
-                .show(ctx, |ui| {
-                    ui.label("about");
-                });
+
+        ui.separator();
+
+        if ui.button("Quit").clicked() {
+            std::process::exit(0);
+        }
+    }
+
+    fn tools_menu(&mut self, ui: &mut egui::Ui) {
+        if ui.button("Preferences").clicked() {
+            unimplemented!()
+        }
+        if ui.button("Settings").clicked() {
+            self.current_tab = Tabs::Settings;
+        }
+        if ui.button("About").clicked() {
+            self.current_tab = Tabs::About; // or unimplemented!() if no window
+        }
+    }
+
+    fn open_file_dialog(&mut self) {
+        self.storage.purge();
+        if let Some(path) = rfd::FileDialog::new().pick_file() {
+            self.picked_path = Some(path.display().to_string());
+            for entry in parse_data(self.picked_path.clone()) {
+                self.storage.add(entry);
+            }
+        }
+    }
+
+    fn side_panel(&mut self, ui: &mut egui::Ui) {
+        Card::new().heading("Tabs").show(ui, |ui| {
+            ui.vertical(|ui| {
+                self.tab_button(ui, "Overview", Tabs::Main);
+                self.tab_button(ui, "Purchases", Tabs::Data);
+                self.tab_button(ui, "Searching", Tabs::Searching);
+                self.tab_button(ui, "Sorting", Tabs::Sorting);
+
+                // keep these buttons but you can decide whether you want them visible
+                self.tab_button(ui, "Settings", Tabs::Settings);
+                self.tab_button(ui, "About", Tabs::About);
+            });
+        });
+    }
+    fn tab_button(&mut self, ui: &mut egui::Ui, label: &str, tab: Tabs) {
+        if ui.button(label).clicked() {
+            self.current_tab = tab;
+        }
+    }
+
+    fn current_tab(&mut self, ui: &mut egui::Ui) {
+        match self.current_tab {
+            Tabs::Main => {
+                Card::new().heading("Overview").show(ui, |ui| self.main_tab(ui));
+            }
+            Tabs::Data => {
+                Card::new().heading("Purchases").show(ui, |ui| self.data_tab(ui));
+            }
+            Tabs::Searching => {
+                Card::new().heading("Searching").show(ui, |ui| self.searching_tab(ui));
+            }
+            Tabs::Sorting => {
+                Card::new().heading("Sorting").show(ui, |ui| self.sorting_tab(ui));
+            }
+            Tabs::Settings | Tabs::About => {
+                // leave them alone; they are handled by the existing if blocks in ui()
+            }
+        }
+    }
+
+
+    fn main_tab(&self, ui: &mut egui::Ui) {
+        Card::new().heading("eSpenXe").show(ui, |ui| {
+            ui.label("Welcome to your personal expense tracker.");
+        });
+    }
+
+    fn data_tab(&mut self, ui: &mut egui::Ui) {
+
+        if self.storage.get_all().is_empty() {
+            ui.label("Nothing to see here!");
+            self.new_entry(ui);
+            return;
         }
 
-        if self.current_tab == Tabs::Settings {
-            egui::Window::new("Setting")
-                .resizable(false)
-                .show(ctx, |ui| {
-                    ui.label("change theme");
-                    egui::widgets::global_dark_light_mode_buttons(ui);
-                    ui.separator();
-                    ui.label("another setting");
-                    egui::widgets::global_dark_light_mode_buttons(ui);
-                });
-        }
-        if self.show_confirmation_dialog {
-            egui::Window::new("Do you want to quit?")
-                .pivot(egui::Align2::CENTER_TOP)
-                .collapsible(false)
-                .resizable(false)
-                .show(
-                    ctx,
-                    |ui| {
-                        ui.horizontal(|ui| {
-                            if ui.button("No").clicked() {
-                                self.show_confirmation_dialog = false;
-                                self.allowed_to_close = false;
+        let entries: Vec<PurchaseEntry> = self.storage.get_all().iter().cloned().collect();
+
+        let mut to_save: Vec<Uuid> = Vec::new();
+        let mut to_delete: Vec<Uuid> = Vec::new();
+
+        // Reserve space for the bottom add card, and clamp the list height to the rest.
+        let bottom_height = 50.0_f32; // <-- adjust after you run once
+        let available = ui.available_height();
+        let list_height = (available - bottom_height).max(60.0);
+
+        ui.vertical(|ui| {
+            ui.add_space(4.0);
+
+            egui::ScrollArea::vertical()
+                .max_height(list_height)
+                .show(ui, |ui| {
+                    for index in 0..entries.len() {
+                        let entry_snapshot = &entries[index];
+                        let id = entry_snapshot.id;
+
+                        ui.push_id(id, |ui| {
+                            let action = self.purchase_entry_ui(ui, id, entry_snapshot);
+
+                            if let RowAction::Save = action {
+                                to_save.push(id);
                             }
-                            if ui.button("Yes").clicked() {
-                                self.show_confirmation_dialog = false;
-                                self.allowed_to_close = true;
-                                ui.ctx().send_viewport_cmd(egui::ViewportCommand::Close);
+                            if let RowAction::Delete = action {
+                                to_delete.push(id);
                             }
                         });
+
+                        ui.add_space(6.0);
                     }
-                );
+                });
+
+            ui.add_space(8.0);
+
+            // Bottom card stays visible.
+            self.new_entry(ui);
+        });
+
+        for id in to_delete {
+            self.storage.remove(id);
         }
+
+        for &index in to_save.iter() {
+            if let Some(e_mut) = self.storage.get_mut(Some(index)) {
+                self.editor.apply_to(e_mut);
+            }
+            self.edit_id = None;
+        }
+    }
+
+    fn sorting_tab(&mut self, ui: &mut egui::Ui) {}
+
+    fn searching_tab(&mut self, ui: &mut egui::Ui) {}
+
+    fn purchase_entry_ui(
+        &mut self,
+        ui: &mut egui::Ui,
+        id: Uuid,
+        entry: &PurchaseEntry,
+    ) -> RowAction {
+        let mut action = RowAction::None;
+        if self.edit_id == Some(id) {
+            Card::new().show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    action = self.editing_entry(ui, id);
+                });
+            });
+        } else {
+            Card::new().show(ui, |ui| {
+                self.entry_label(ui, id, entry);
+            });
+            action = RowAction::None;
+        }
+        action
+    }
+
+    fn editing_entry(&mut self, ui: &mut egui::Ui, id: Uuid) -> RowAction {
+        let mut action = RowAction::None;
+
+        ui.horizontal(|ui| {
+            App::render_editing_ui(
+                ui,
+                &mut self.editor.date_text,
+                &mut self.editor.amount_text,
+                &mut self.editor.merchant,
+                &mut self.editor.category,
+                &mut self.editor.notes,
+            );
+
+            if ui.button("SAVE").clicked() {
+                action = RowAction::Save;
+            } else if ui.button("DELETE").clicked() {
+                action = RowAction::Delete;
+            }
+        });
+
+        action
+    }
+
+
+    fn render_editing_ui(
+        ui: &mut egui::Ui,
+        date_text: &mut String,
+        amount_text: &mut String,
+        merchant: &mut String,
+        category: &mut SpendingCategory,
+        notes: &mut String,
+    ) {
+        ui.horizontal(|ui| {
+            ui.add_sized(
+                [160.0, 20.0],
+                egui::TextEdit::singleline(date_text).hint_text("Date"),
+            );
+            ui.add_sized(
+                [80.0, 20.0],
+                egui::TextEdit::singleline(amount_text).hint_text("Amount"),
+            );
+            ui.add_sized(
+                [80.0, 20.0],
+                egui::TextEdit::singleline(merchant).hint_text("Merchant"),
+            );
+
+            egui::ComboBox::from_label("Category")
+                .width(80.0)
+                .selected_text(category.as_str())
+                .show_ui(ui, |ui| {
+                    for c in SpendingCategory::ALL.iter().copied() {
+                        ui.selectable_value(category, c, c.as_str());
+                    }
+                });
+
+            ui.add_sized(
+                [80.0, 20.0],
+                egui::TextEdit::singleline(notes).hint_text("Notes"),
+            );
+        });
+    }
+
+
+    fn entry_label(&mut self, ui: &mut egui::Ui, index: Uuid, e: &PurchaseEntry) {
+        let text = format!(
+            "{}  {:.3}  {}  {}  {}",
+            e.date,
+            e.amount,
+            e.merchant,
+            e.category.as_str(),
+            e.notes
+        );
+        if ui
+            .add(egui::Label::new(text).sense(egui::Sense::click()))
+            .clicked()
+        {
+            self.edit_id = Some(index);
+            self.editor = PurchaseEntryEditor::from(e);
+        }
+    }
+
+    fn new_entry(&mut self, ui: &mut egui::Ui) {
+        egui::Panel::bottom("new_editor")
+            .resizable(true)
+            .show(ui, |ui| {
+                ui.add(egui::Label::new("Add Transaction"));
+                ui.horizontal(|ui| {
+                    ui.add_sized(
+                        [160.0, 20.0],
+                        egui::TextEdit::singleline(&mut self.new_editor.date_text)
+                            .hint_text("Date"),
+                    );
+                    ui.add_sized(
+                        [80.0, 20.0],
+                        egui::TextEdit::singleline(&mut self.new_editor.amount_text)
+                            .hint_text("Amount"),
+                    );
+                    ui.add_sized(
+                        [80.0, 20.0],
+                        egui::TextEdit::singleline(&mut self.new_editor.merchant)
+                            .hint_text("Merchant"),
+                    );
+                    egui::ComboBox::from_label("Category")
+                        .width(80.0)
+                        .selected_text(self.new_editor.category.as_str())
+                        .show_ui(ui, |ui| {
+                            for c in SpendingCategory::ALL.iter().copied() {
+                                ui.selectable_value(&mut self.new_editor.category, c, c.as_str());
+                            }
+                        });
+                    ui.add_sized(
+                        [80.0, 20.0],
+                        egui::TextEdit::singleline(&mut self.new_editor.notes).hint_text("Notes"),
+                    );
+
+                    if ui.button("ADD").clicked() {
+                        let mut entry = PurchaseEntry {
+                            id: Uuid::new_v4(),
+                            date: NaiveDateTime::default(),
+                            amount: 0.0,
+                            merchant: String::new(),
+                            category: SpendingCategory::Other,
+                            notes: String::new(),
+                        };
+                        self.new_editor.apply_to(&mut entry);
+                        self.storage.add(entry);
+                        self.new_editor = PurchaseEntryEditor::new();
+                    }
+                });
+            });
+    }
+
+    fn handle_close_request(&mut self, ui: &mut egui::Ui) {
+        if self.allowed_to_close {
+            // allow close
+        } else {
+            ui.send_viewport_cmd(egui::ViewportCommand::CancelClose);
+            self.show_confirmation_dialog = true;
+        }
+    }
+
+    fn about_window(&self, ui: &mut egui::Ui) {
+        egui::Window::new("About")
+            .resizable(false)
+            .collapsible(false)
+            .show(ui, |ui| {
+                ui.label("about");
+            });
+    }
+
+    fn settings_window(&self, ui: &mut egui::Ui) {
+        egui::Window::new("Setting")
+            .resizable(false)
+            .show(ui, |ui| {
+                ui.label("change theme");
+                egui::widgets::global_theme_preference_buttons(ui);
+                ui.separator();
+                ui.label("another setting");
+                egui::widgets::global_theme_preference_buttons(ui);
+            });
+    }
+
+    fn confirm_quit_dialog(&mut self, ui: &mut egui::Ui) {
+        egui::Window::new("Do you want to quit?")
+            .pivot(egui::Align2::CENTER_TOP)
+            .collapsible(false)
+            .resizable(false)
+            .show(ui, |ui| {
+                ui.horizontal(|ui| {
+                    if ui.button("No").clicked() {
+                        self.show_confirmation_dialog = false;
+                        self.allowed_to_close = false;
+                    }
+                    if ui.button("Yes").clicked() {
+                        self.show_confirmation_dialog = false;
+                        self.allowed_to_close = true;
+                        ui.send_viewport_cmd(egui::ViewportCommand::Close);
+                    }
+                });
+            });
     }
 }

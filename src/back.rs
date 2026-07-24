@@ -1,16 +1,26 @@
 use chrono::NaiveDateTime;
 use serde::{Deserialize, Deserializer};
 use crate::front::SpendingCategory;
+use uuid::Uuid;
 
-#[derive(Default, Debug, serde::Deserialize, Clone, serde::Serialize)]
+fn gen_uuid() -> Uuid {
+    Uuid::new_v4()
+}
+
+#[derive(Default,Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PurchaseEntry {
+    #[serde(default = "gen_uuid",skip_serializing)]
+    pub(crate) id: Uuid,
+
     #[serde(deserialize_with = "parse_naive_datetime")]
     pub(crate) date: NaiveDateTime,
+
     pub(crate) amount: f64,
     pub(crate) merchant: String,
     pub(crate) category: SpendingCategory,
     pub(crate) notes: String,
 }
+
 
 #[derive(Default)]
 pub struct AppStorage {
@@ -21,38 +31,25 @@ impl AppStorage {
     pub fn add(&mut self, entry: PurchaseEntry) {
         self.loaded_data.push(entry);
     }
-
-    pub fn add_many(&mut self, entries: Vec<PurchaseEntry>) {
-        self.loaded_data.extend(entries);
-    }
-
-    pub fn remove(&mut self, id: usize) {
-        self.loaded_data.remove(id);
-    }
-
-    pub fn remove_many(&mut self, mut idxes: Vec<usize>) {
-        idxes.sort_unstable();
-        idxes.dedup();
-        for i in idxes.into_iter().rev() {
-            if i < self.loaded_data.len() {
-                self.loaded_data.remove(i);
+    pub fn remove(&mut self, id: Uuid) {
+        if let Some(i) = self.loaded_data.iter().position(|item| item.id == id) {
+            self.loaded_data.remove(i);
             }
+    }
+
+    pub fn get(&self, id: Uuid) -> Option<&PurchaseEntry> {
+        if let Some(i) = self.loaded_data.iter().position(|item| item.id == id) {
+            Some(&self.loaded_data[i])
+        } else {
+            None
         }
     }
 
-    pub fn get(&self, id: Option<usize>) -> Option<&PurchaseEntry> {
-        match id {
-            Some(i) => self.loaded_data.get(i),
-            None => None,
-        }
+    pub fn get_mut(&mut self, id: Option<Uuid>) -> Option<&mut PurchaseEntry> {
+        let id = id?;
+        self.loaded_data.iter_mut().find(|item| item.id == id)
     }
 
-    pub fn get_mut(&mut self, id: Option<usize>) -> Option<&mut PurchaseEntry> {
-        match id {
-            Some(i) => self.loaded_data.get_mut(i),
-            None => None,
-        }
-    }
 
     pub fn purge(&mut self) {
         self.loaded_data.clear();
@@ -89,8 +86,8 @@ where
         .map_err(|e| serde::de::Error::custom(format!("bad datetime: {e}")))
 }
 
-pub fn new_data() -> Vec<PurchaseEntry> {
-    vec![PurchaseEntry::default()]
+pub fn new_data() -> PurchaseEntry {
+    PurchaseEntry::default()
 }
 
 pub fn parse_data(path: Option<String>) -> Vec<PurchaseEntry> {

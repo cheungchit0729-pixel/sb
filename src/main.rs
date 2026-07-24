@@ -13,6 +13,6 @@ fn main() -> eframe::Result<()> {
     eframe::run_native(
         App::name(),
         native_options,
-        Box::new(|_| Box::<App>::default()),
-    )
+        Box::new(|_| Ok(Box::<App>::default()),
+    ))
 }
